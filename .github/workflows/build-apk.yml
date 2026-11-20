@@ -1,3 +1,4 @@
+
 name: Build Aaraaf Tractor Khata APK
 
 on:
@@ -11,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  build-debug-apk:
     runs-on: ubuntu-latest
 
     steps:
@@ -24,60 +25,61 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Set up Android SDK and accept licenses
+        uses: android-actions/setup-android@v4
+        with:
+          accept-android-sdk-licenses: 'yes'
+          log-accepted-android-sdk-licenses: 'false'
+          packages: ''
 
-      - name: Install Android SDK packages
+      - name: Accept SDK licenses and install required packages
+        shell: bash
         run: |
-          sdkmanager "platforms;android-36" "platforms;android-36.1" "platform-tools" "build-tools;36.0.0"
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-36" \
+            "platforms;android-36.1" \
+            "build-tools;36.0.0"
 
-      - name: Extract source ZIP
+      - name: Extract source ZIP and locate Android project
         id: project
         shell: bash
         run: |
           set -euo pipefail
-
-          ZIP_FILE="$(find "$GITHUB_WORKSPACE" -maxdepth 1 -type f -name '*logo-updated-source*.zip' -print -quit)"
-
+          ZIP_FILE="$(find "$GITHUB_WORKSPACE" -maxdepth 1 -type f -iname '*logo-updated-source*.zip' -print -quit)"
           if [[ -z "$ZIP_FILE" ]]; then
-            ZIP_FILE="$(find "$GITHUB_WORKSPACE" -maxdepth 1 -type f -name '*.zip' -print -quit)"
+            ZIP_FILE="$(find "$GITHUB_WORKSPACE" -maxdepth 1 -type f -iname '*.zip' -print -quit)"
           fi
-
           if [[ -z "$ZIP_FILE" ]]; then
-            echo "Source ZIP not found."
+            echo "No source ZIP found in repository root." >&2
             exit 1
           fi
-
           mkdir -p "$RUNNER_TEMP/aaraaf-source"
           unzip -q "$ZIP_FILE" -d "$RUNNER_TEMP/aaraaf-source"
-
-          PROJECT_FILE="$(find "$RUNNER_TEMP/aaraaf-source" -type f -path '*/app/build.gradle.kts' -print -quit)"
-
-          if [[ -z "$PROJECT_FILE" ]]; then
-            echo "Android project not found inside ZIP."
+          SETTINGS_FILE="$(find "$RUNNER_TEMP/aaraaf-source" -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)"
+          if [[ -z "$SETTINGS_FILE" ]]; then
+            echo "Could not find Gradle settings file inside ZIP." >&2
             exit 1
           fi
-
-          PROJECT_DIR="$(dirname "$(dirname "$PROJECT_FILE")")"
-
-          if [[ ! -f "$PROJECT_DIR/settings.gradle.kts" ]]; then
-            echo "Gradle settings file not found."
+          PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
+          if [[ ! -f "$PROJECT_DIR/app/build.gradle.kts" || ! -f "$PROJECT_DIR/gradlew" ]]; then
+            echo "Android app module or Gradle wrapper not found." >&2
             exit 1
           fi
-
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-          echo "Project found: $PROJECT_DIR"
+          echo "Using project: $PROJECT_DIR"
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.3.1'
-
-      - name: Build Debug APK
+      - name: Build debug APK
+        shell: bash
         run: |
-          gradle -p "${{ steps.project.outputs.project_dir }}" :app:assembleDebug --no-daemon
+          set -euo pipefail
+          cd "${{ steps.project.outputs.project_dir }}"
+          chmod +x ./gradlew
+          ./gradlew --no-daemon :app:assembleDebug
 
-      - name: Upload APK
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: Aaraaf-Tractor-Khata-debug-apk
