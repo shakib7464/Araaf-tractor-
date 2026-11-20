@@ -31,11 +31,10 @@ jobs:
         with:
           accept-android-sdk-licenses: true
           log-accepted-android-sdk-licenses: false
-          packages: ''
 
       - name: Install Android SDK packages
         run: |
-          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          sdkmanager "platform-tools" "platforms;android-36" "platforms;android-36.1" "build-tools;36.0.0"
 
       - name: Extract source ZIP
         id: project
@@ -57,34 +56,30 @@ jobs:
           mkdir -p "$RUNNER_TEMP/aaraaf-source"
           unzip -q "$ZIP_FILE" -d "$RUNNER_TEMP/aaraaf-source"
 
-          PROJECT_FILE="$(find "$RUNNER_TEMP/aaraaf-source" -type f \( -path '*/app/build.gradle.kts' -o -path '*/app/build.gradle' \) -print -quit)"
+          PROJECT_DIR="$RUNNER_TEMP/aaraaf-source/native_work"
 
-          if [[ -z "$PROJECT_FILE" ]]; then
-            echo "Android app Gradle file not found"
+          if [[ ! -f "$PROJECT_DIR/settings.gradle.kts" ]]; then
+            echo "Gradle settings not found"
             exit 1
           fi
 
-          PROJECT_DIR="$(dirname "$(dirname "$PROJECT_FILE")")"
-
-          if [[ ! -f "$PROJECT_DIR/gradlew" ]]; then
-            echo "Gradle wrapper not found"
-            exit 1
-          fi
-
-          if [[ ! -f "$PROJECT_DIR/settings.gradle" && ! -f "$PROJECT_DIR/settings.gradle.kts" ]]; then
-            echo "Gradle settings file not found"
+          if [[ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]]; then
+            echo "Android app module not found"
             exit 1
           fi
 
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
+      - name: Set up Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
       - name: Build APK
         shell: bash
         run: |
           set -euo pipefail
-          cd "${{ steps.project.outputs.project_dir }}"
-          chmod +x gradlew
-          ./gradlew --no-daemon :app:assembleDebug
+          gradle -p "${{ steps.project.outputs.project_dir }}" --no-daemon :app:assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
